@@ -6,104 +6,46 @@ import numpy as np
 
 # Visualization
 import matplotlib.pyplot as plt
+import matplotlib as mp
 import webbrowser
 
+mp.rcParams['animation.embed_limit'] = 2 ** 25
 
-def normalize(v):
-    """ Normalize a vector to length 1. """
+
+def euclidean_norm(v, keep_zero=False):
+    """ Calculate euclidean norm of a 2D vector.
+    ||v|| = sqrt(x^2 + y^2)"""
     norm = np.linalg.norm(v)
-    if norm == 0:
+    return norm
+
+
+def unit_vector(v):
+    """ Return the unit directional vector of a 2D vector. """
+    norm = euclidean_norm(v)
+    if norm != 0:
+        return v / norm
+    else:
+        return np.zeros(2)
+
+
+def noise(xi_p):
+    """ Generate noise for sheep i at time step k, where xi_p is
+    the upper limit for the speed of the sheep """
+    mi = np.random.uniform()  # uniform random between 0 and 1
+    pi = np.random.uniform()  # uniform random between 0 and 1
+
+    constant = 1 / 4 * xi_p * mi
+    vector = np.array([np.cos(2 * np.pi * pi), np.sin(2 * np.pi * pi)])
+
+    return constant * vector
+
+
+def saturate(v, xi_p):
+    """ Saturation function where xi_p is the saturation threshold. """
+    if euclidean_norm(v, True) <= xi_p:
         return v
-    return v / norm
-
-
-class Boid(ap.Agent):
-    """ An agent with a position and velocity in a continuous space,
-    who follows Craig Reynolds three rules of flocking behavior;
-    plus a fourth rule to avoid the edges of the simulation space. """
-
-    def setup(self):
-
-        self.velocity = normalize(
-            self.model.nprandom.random(self.p.ndim) - 0.5)
-
-    def setup_pos(self, space):
-
-        self.space = space
-        self.neighbors = space.neighbors
-        self.pos = space.positions[self]
-
-    def update_velocity(self):
-
-        pos = self.pos
-        ndim = self.p.ndim
-
-        # Rule 1 - Cohesion
-        nbs = self.neighbors(self, distance=self.p.outer_radius)
-        nbs_len = len(nbs)
-        nbs_pos_array = np.array(nbs.pos)
-        nbs_vec_array = np.array(nbs.velocity)
-        if nbs_len > 0:
-            center = np.sum(nbs_pos_array, 0) / nbs_len
-            v1 = (center - pos) * self.p.cohesion_strength
-        else:
-            v1 = np.zeros(ndim)
-
-        # Rule 2 - Separation
-        v2 = np.zeros(ndim)
-        for nb in self.neighbors(self, distance=self.p.inner_radius):
-            v2 -= nb.pos - pos
-        v2 *= self.p.separation_strength
-
-        # Rule 3 - Alignment
-        if nbs_len > 0:
-            average_v = np.sum(nbs_vec_array, 0) / nbs_len
-            v3 = (average_v - self.velocity) * self.p.alignment_strength
-        else:
-            v3 = np.zeros(ndim)
-
-        # Rule 4 - Borders
-        v4 = np.zeros(ndim)
-        d = self.p.border_distance
-        s = self.p.border_strength
-        for i in range(ndim):
-            if pos[i] < d:
-                v4[i] += s
-            elif pos[i] > self.space.shape[i] - d:
-                v4[i] -= s
-
-        # Update velocity
-        self.velocity += v1 + v2 + v3 + v4
-        self.velocity = normalize(self.velocity)
-
-    def update_position(self):
-
-        self.space.move_by(self, self.velocity)
-
-
-class BoidsModel(ap.Model):
-    """
-    An agent-based model of animals' flocking behavior,
-    based on Craig Reynolds' Boids Model [1]
-    and Conrad Parkers' Boids Pseudocode [2].
-
-    [1] http://www.red3d.com/cwr/boids/
-    [2] http://www.vergenet.net/~conrad/boids/pseudocode.html
-    """
-
-    def setup(self):
-        """ Initializes the agents and network of the model. """
-
-        self.space = ap.Space(self, shape=[self.p.size] * self.p.ndim)
-        self.agents = ap.AgentList(self, self.p.population, Boid)
-        self.space.add_agents(self.agents, random=True)
-        self.agents.setup_pos(self.space)
-
-    def step(self):
-        """ Defines the models' events per simulation step. """
-
-        self.agents.update_velocity()  # Adjust direction
-        self.agents.update_position()  # Move into new direction
+    else:
+        return xi_p * unit_vector(v)
 
 
 class Sheep(ap.Agent):
@@ -115,7 +57,7 @@ class Sheep(ap.Agent):
 
         # self.velocity = normalize(
         #     self.model.nprandom.random(self.p.ndim) - 0.5)
-        self.velocity = normalize(np.array([0.0, 0.0]))
+        self.velocity = np.zeros(2)
 
     def setup_pos(self, space):
 
@@ -126,20 +68,16 @@ class Sheep(ap.Agent):
     def update_velocity(self):
 
         pos = self.pos
-        ndim = self.p.ndim
 
         # Social Force (Repelled when close, attracted when far)
-        # 4 zones (repel, neutral, attract, neutral), only first 3 are calculated
+        # Zone 1 (repel)
+        nbs_z1 = self.neighbors(self, distance=self.p.rho_r).to_list()
 
         # Zone 2 (neutral)
-        nbs_z2 = self.neighbors(self, distance=self.p.radius_two).to_list()
+        nbs_z2 = self.neighbors(self, distance=self.p.rho_g).to_list()
 
         # Zone 3 (attract)
-        nbs_z3 = self.neighbors(self, distance=self.p.radius_three).to_list()
-
-        # Zone 3 should exclude all agents from zones 1 and 2
-        # Zone 2 will do nothing
-        # Zone 1 will repel
+        nbs_z3 = self.neighbors(self, distance=self.p.rho_pv).to_list()
 
         # Get lists of Agent IDs to exclude zone 2 from zone 3
         zone_2_ids = [x.id for x in nbs_z2]
@@ -147,66 +85,42 @@ class Sheep(ap.Agent):
         zone_3_exclusive_ids = [x for x in zone_3_ids if x not in zone_2_ids]
         nbs_z3_revised = nbs_z3.select([True if x.id in zone_3_exclusive_ids else False for x in nbs_z3])
 
-        # Calculate center point of attraction for zone 3
-        nbs_len = len(nbs_z3_revised)
-        nbs_pos_array = np.array(nbs_z3.pos)
-        nbs_vec_array = np.array(nbs_z3.velocity)
-        if nbs_len > 0:
-            center = np.sum(nbs_pos_array, 0) / nbs_len
-            v1 = (center - pos) * self.p.cohesion_strength
-        else:
-            v1 = np.zeros(ndim)
+        # rho_s: minimal sheep-to-sheep safety distance
+        # rho_r: maximal action distance of the repulsive effect between two sheep
+        # rho_g: minimal action distance of the attractive effect between two sheep
+        v_pi_attractive = np.zeros(2)
+        for sheep in nbs_z3_revised:
+            p_ij = sheep.pos - pos
+            phi = self.p.gamma * np.sqrt(euclidean_norm(p_ij) - self.p.rho_g)
+            v_pi_attractive += phi * unit_vector(p_ij)
 
-        # # Calculate center point of repulsion for zone 1
-        # nbs_len = len(nbs_z1)
-        # nbs_pos_array = np.array(nbs_z1.pos)
-        # nbs_vec_array = np.array(nbs_z1.velocity)
-        # if nbs_len > 0:
-        #     center = np.sum(nbs_pos_array, 0) / nbs_len
-        #     v2 = (pos - center) * self.p.cohesion_strength
-        # else:
-        #     v2 = np.zeros(ndim)
-
-        # # Rule 1 - Cohesion
-        # nbs = self.neighbors(self, distance=self.p.outer_radius)
-        # nbs_len = len(nbs)
-        # nbs_pos_array = np.array(nbs.pos)
-        # nbs_vec_array = np.array(nbs.velocity)
-        # if nbs_len > 0:
-        #     center = np.sum(nbs_pos_array, 0) / nbs_len
-        #     v1 = (center - pos) * self.p.cohesion_strength
-        # else:
-        #     v1 = np.zeros(ndim)
-
-        # Rule 2 - Separation
-        v2 = np.zeros(ndim)
-        for nb in self.neighbors(self, distance=self.p.radius_one):
-            v2 -= nb.pos - pos
-        v2 *= self.p.separation_strength
-
-        # # Rule 3 - Alignment
-        # if nbs_len > 0:
-        #     average_v = np.sum(nbs_vec_array, 0) / nbs_len
-        #     v3 = (average_v - self.velocity) * self.p.alignment_strength
-        # else:
-        #     v3 = np.zeros(ndim)
+        v_pi_repulsive = np.zeros(2)
+        for sheep in nbs_z1:
+            p_ij = pos - sheep.pos
+            p_ij_norm = euclidean_norm(p_ij)
+            phi = self.p.beta * (self.p.rho_r - p_ij_norm) / (p_ij_norm - self.p.rho_s)
+            v_pi_repulsive += phi * unit_vector(p_ij)
 
         # Rule 4 - Borders
-        v4 = np.zeros(ndim)
+        v4 = np.zeros(2)
         d = self.p.border_distance
         s = self.p.border_strength
-        for i in range(ndim):
+        for i in range(2):
             if pos[i] < d:
                 v4[i] += s
             elif pos[i] > self.space.shape[i] - d:
                 v4[i] -= s
 
-        # Update velocity
-        self.velocity += v1 + v2 + v4
-        self.velocity = normalize(self.velocity)
+        # Noise vector
+        nv = noise(self.p.speed_limit)
+
+        # Update velocity using attractive, repulsive, boundary, and noise forces
+        # self.velocity += v_pi_attractive + v4 + nv
+        # self.velocity += v_pi_repulsive + v4 + nv
+        velocity_vector = v_pi_attractive + v_pi_repulsive + v4 + nv
+        self.velocity += saturate(velocity_vector, self.p.speed_limit)
 
     def update_position(self):
-
         self.space.move_by(self, self.velocity)
 
 
@@ -223,7 +137,7 @@ class SheepModel(ap.Model):
     def setup(self):
         """ Initializes the agents and network of the model. """
 
-        self.space = ap.Space(self, shape=[self.p.size] * self.p.ndim)
+        self.space = ap.Space(self, shape=[self.p.size] * 2)
         self.agents = ap.AgentList(self, self.p.population, Sheep)
         self.space.add_agents(self.agents, random=True)
         self.agents.setup_pos(self.space)
@@ -236,11 +150,25 @@ class SheepModel(ap.Model):
 
 
 def animation_plot_single(m, ax):
-    ndim = m.p.ndim
-    ax.set_title(f"Boids Flocking Model {ndim}D t={m.t}")
+    ndim = 2
+    ax.set_title(f"Sheep Herding Model {ndim}D t={m.t}")
     pos = m.space.positions.values()
     pos = np.array(list(pos)).T  # Transform
     ax.scatter(*pos, s=1, c='black')
+    # updating each agent
+    for agent in m.agents:
+        if (agent.type == "Sheep"):
+            # TODO: drawing boundaries for each zone ( zone1 repulsive, zone2 nuetral, zone3 attractive, zone4 nothing as out of sight)
+            c1 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_r, edgecolor="red",
+                            facecolor=(0, 0, 0, 0))  # border of zone 1 and zone 2
+            c2 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_g, edgecolor="yellow",
+                            facecolor=(0, 0, 0, 0))  # border of zone 2 and zone 3
+            c3 = plt.Circle((agent.pos[0], agent.pos[1]), radius=15, edgecolor="pink",
+                            facecolor=(0, 0, 0, 0))  # border of zone 3 and 4
+            ax.add_patch(c1)
+            ax.add_patch(c2)
+            ax.add_patch(c3)
+
     ax.set_xlim(0, m.p.size)
     ax.set_ylim(0, m.p.size)
     if ndim == 3:
@@ -249,44 +177,28 @@ def animation_plot_single(m, ax):
 
 
 def animation_plot(m, p):
-    projection = '3d' if p['ndim'] == 3 else None
-    fig = plt.figure(figsize=(7, 7))
-    ax = fig.add_subplot(111, projection=projection)
+    fig = plt.figure(figsize=(12, 12))
+    ax = fig.add_subplot(111, projection=None)
     animation = ap.animate(m(p), fig, ax, animation_plot_single)
     return animation.to_jshtml(fps=30)
 
-
-parameters2D = {
-    'size': 50,
-    'seed': 123,
-    'steps': 200,
-    'ndim': 2,
-    'population': 200,
-    'inner_radius': 3,
-    'outer_radius': 10,
-    'border_distance': 10,
-    'cohesion_strength': 0.005,
-    'separation_strength': 0.1,
-    'alignment_strength': 0.3,
-    'border_strength': 0.5
-}
-
 parameters2DAlt = {
     'size': 50,
-    'seed': 123,
+    'seed': 128,
     'steps': 200,
-    'ndim': 2,
-    'population': 200,
-    'radius_one': 2,
-    'radius_two': 10,
-    'radius_three': 20,
+    'population': 5,
+    'rho_s': 1.2,
+    'rho_r': 3,
+    'rho_g': 7,
+    'rho_pv': 15,
+    'gamma': 1,
+    'beta': 3,
     'border_distance': 10,
-    'inner_radius': 3,
-    'outer_radius': 10,
     'cohesion_strength': 0.005,
     'separation_strength': 0.1,
     'alignment_strength': 0.3,
-    'border_strength': 0.5
+    'border_strength': 0.5,
+    'speed_limit': 0.1
 }
 
 html = animation_plot(SheepModel, parameters2DAlt)
