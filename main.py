@@ -118,7 +118,8 @@ class Sheep(ap.Agent):
         # self.velocity += v_pi_attractive + v4 + nv
         # self.velocity += v_pi_repulsive + v4 + nv
         velocity_vector = v_pi_attractive + v_pi_repulsive + v4 + nv
-        self.velocity += saturate(velocity_vector, self.p.speed_limit)
+        self.velocity += velocity_vector
+        self.velocity = saturate(self.velocity, self.p.speed_limit)
 
     def update_position(self):
         self.space.move_by(self, self.velocity)
@@ -163,7 +164,7 @@ def animation_plot_single(m, ax):
                             facecolor=(0, 0, 0, 0))  # border of zone 1 and zone 2
             c2 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_g, edgecolor="yellow",
                             facecolor=(0, 0, 0, 0))  # border of zone 2 and zone 3
-            c3 = plt.Circle((agent.pos[0], agent.pos[1]), radius=15, edgecolor="pink",
+            c3 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_pv, edgecolor="pink",
                             facecolor=(0, 0, 0, 0))  # border of zone 3 and 4
             ax.add_patch(c1)
             ax.add_patch(c2)
@@ -183,16 +184,16 @@ def animation_plot(m, p):
     return animation.to_jshtml(fps=30)
 
 parameters2DAlt = {
-    'size': 50,
+    'size': 100,
     'seed': 128,
     'steps': 200,
-    'population': 5,
+    'population': 24,
     'rho_s': 1.2,
-    'rho_r': 3,
-    'rho_g': 7,
-    'rho_pv': 15,
-    'gamma': 1,
-    'beta': 3,
+    'rho_r': 2.2,
+    'rho_g': 5.4,
+    'rho_pv': 20,
+    'gamma': 0.02,
+    'beta': 5,
     'border_distance': 10,
     'cohesion_strength': 0.005,
     'separation_strength': 0.1,
