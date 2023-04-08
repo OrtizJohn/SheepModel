@@ -128,8 +128,7 @@ class Dog(ap.Agent):
             if pos[i] < d:
                 border_repulsive[i] += s
             elif pos[i] > self.space.shape[i] - d:
-
-
+                border_repulsive[i] -= s
         # Noise vector
         nv = noise(self.p.speed_limit)
 
@@ -269,11 +268,10 @@ class SheepModel(ap.Model):
         """ Initializes the agents and network of the model. """
 
         self.space = ap.Space(self, shape=[self.p.size] * 2)
-
         self.agents = ap.AgentList(self, self.p.population, Sheep) #add sheeps
         
         agent_ta = TargetArea(self)
-        self.agents.append(agent_ta) #add target area 
+        self.agents.insert(0,agent_ta) #add target area 
         #create position list using random generated numbers within  area
         # for x (0,100) 
         # for y (25,85) 
@@ -283,7 +281,7 @@ class SheepModel(ap.Model):
         xPos = [float(x) for x in xPos]
         yPos = [float(y) for y in yPos]
         self.positionList = np.column_stack((xPos,yPos))
-        self.positionList = np.append(self.positionList, [agent_ta.setPos],axis=0)
+        self.positionList = np.append([agent_ta.setPos],self.positionList ,axis=0)
     
         posList = [ (x[0],x[1]) for x in self.positionList]
         print("positionList: ",posList)
@@ -357,7 +355,7 @@ parameters = {
     'alignment_strength': 0.3,
     'border_strength': 0.5,
     'speed_limit': 0.1
-
+}
 
 html = animation_plot(SheepModel, parameters)
 
