@@ -10,6 +10,8 @@ import matplotlib as mp
 import webbrowser
 
 mp.rcParams['animation.embed_limit'] = 2**25
+np.random.seed(123)
+random.seed(123)
 
 def euclidean_norm(v, keep_zero=False):
     """ Calculate euclidean norm of a 2D vector.
@@ -171,8 +173,11 @@ class SheepModel(ap.Model):
         #create position list using random generated numbers within  area
         # for x (0,100) 
         # for y (25,85) 
+        
         xPos = random.sample(range(0,100), self.p.population)
-        yPos = random.sample(range(25,85),self.p.population)
+        yPos = random.sample(range(50,85),self.p.population)
+        xPos = [float(x) for x in xPos]
+        yPos = [float(y) for y in yPos]
         self.positionList = np.column_stack((xPos,yPos))
         self.positionList = np.append(self.positionList, [agent_ta.setPos],axis=0)
     
@@ -227,7 +232,7 @@ parameters = {
     'size': 100,
     'seed': 128,
     'steps': 200,
-    'population': 15,
+    'population': 24,
     'rho_s': 1.2,
     'rho_r': 2.2,
     'rho_g': 5.4,
