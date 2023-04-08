@@ -88,12 +88,6 @@ class Dog(ap.Agent):
         # Zone 3 (attract)
         nbs_z3 = self.neighbors(self, distance=self.p.rho_pv).to_list()
 
-        # # Look for sheepdog
-        # v_qi = np.zeros(2)
-        # for agent in nbs_z3:
-        #     if agent.type == "Dog":
-        #         v_qi = self.p.alpha *
-
 
         # Get lists of Agent IDs to exclude zone 0 from zone 1
         zone_0_ids = [x.id for x in nbs_z0]
@@ -181,6 +175,12 @@ class Sheep(ap.Agent):
         # Zone 3 (attract)
         nbs_z3 = self.neighbors(self, distance=self.p.rho_pv).to_list()
         nbs_z3 = only_sheep(nbs_z3)
+
+         # # Look for sheepdog
+        # v_qi = np.zeros(2)
+        # for agent in nbs_z3:
+        #     if agent.type == "Dog":
+        #         v_qi = self.p.alpha *
 
         # Get lists of Agent IDs to exclude zone 0 from zone 1
         zone_0_ids = [x.id for x in nbs_z0]
