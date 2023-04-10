@@ -31,6 +31,20 @@ def unit_vector(v):
         return np.zeros(2)
 
 
+def rotation(theta):
+    """ Planar rotation matrix R """
+    return np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+
+
+def angle(x, y):
+    """ Finds angle between vectors x and y """
+    return np.arccos(np.inner(x, y) / (np.linalg.norm(x) * np.linalg.norm(y)))
+
+def stack_overflow_angle(v1, v2):
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+
 def noise(xi_p):
     """ Generate noise for sheep i at time step k, where xi_p is
     the upper limit for the speed of the sheep """
@@ -55,13 +69,19 @@ def only_sheep(arr):
     return arr.select([True if agent.type == "Sheep" else False for agent in arr])
 
 
+def only_agents(arr):
+    return arr.select([True if agent.type == "Sheep" or agent.type == "Dog" else False for agent in arr])
+
+
 class Dog(ap.Agent):
     """ An agent with a position and velocity in a continuous space,
     which follows the Social Force Model for herding. """
 
     def setup(self):
 
-        self.velocity = np.zeros(2)
+        # self.velocity = np.zeros(2)
+        self.velocity = np.array([-0.5, 0.5])
+        self.state_flag = 1
 
     def setup_pos(self, space):
 
@@ -69,9 +89,41 @@ class Dog(ap.Agent):
         self.neighbors = space.neighbors
         self.pos = space.positions[self]
 
+
+    def H(self, sheep, Dcdlr):
+        return np.inner(sheep.pos - self.pos, Dcdlr)
+
+    def F(self, sheep, Dqc):
+        return np.inner(sheep.pos - self.pos, Dqc)
+
+    def G(self, sheep):
+        return np.linalg.norm(sheep.pos - self.pos)
+
+    def V_front(self, sheep_list, Dcdlr):
+        H_distances = []
+        for sheep in sheep_list:
+            H_distances.append(self.H(sheep, Dcdlr))
+
+        max_index = np.argmax(H_distances)
+        return sheep_list[max_index]
+
+    def P_left_front(self, sheep_list):
+        G_distances = []
+        for sheep in sheep_list:
+            G_distances.append(self.G(sheep))
+
+        max_index = np.argmax(G_distances)
+        return sheep_list[max_index]
+
+
     def update_velocity(self):
 
+        self.p.time_step += 1
         pos = self.pos
+
+        for sheep in self.space.agents:
+            sheep.color = 'aqua'
+            sheep.critical = [0, 0, 0, 0]
 
         # Social Force (Repelled when close, attracted when far)
         # rho_s: minimal sheep-to-sheep safety distance
@@ -81,9 +133,71 @@ class Dog(ap.Agent):
         # Sheepdog vision
         vision = self.neighbors(self, distance=self.p.rho_vp).to_list()
 
-        # sheep_check = True
-        # for sheep in vision:
-        #     sheep_left_check =
+        # Calculating centroid of visible sheep (p^c(k))
+        centroid_list = []
+        for sheep in vision:
+            centroid_list.append(sheep.pos)
+
+        centroid = np.mean(centroid_list, axis=0)
+
+        Dcd = unit_vector(np.array(self.p.destination_center) - centroid)
+        Dcdl = np.matmul(rotation(np.pi / 2), Dcd)
+        Dcdr = np.matmul(rotation(-np.pi / 2), Dcd)
+        Dqc = unit_vector(centroid - pos)
+
+        A = unit_vector(pos - self.p.destination_center)
+        C = -1 * A
+
+        # Checking the left
+        left_check = True
+        right_check = True
+        for sheep in vision:
+            B = unit_vector(sheep.pos - self.p.destination_center)
+            if np.cross(A, B) >= 0 and np.cross(C, B) < 0:
+                left_check = False
+                sheep.color = 'teal'
+            elif np.cross(A, B) < 0 and np.cross(C, B) >= 0:
+                right_check = False
+                sheep.color = 'lavender'
+            else:
+                "Oops"
+
+
+        # Calculating critical sheep (V_lf = P_lf under the assumption V_lf is always singleton)
+        V_lf = self.V_front(vision, Dcdl)
+        V_rf = self.V_front(vision, Dcdr)
+
+        V_lf.critical[0] = 1
+        V_rf.critical[1] = 1
+        #P_lf = self.P_left_front(vision)
+
+        theta_lt = angle(Dcd, pos - V_lf.pos)
+        theta_rt = angle(Dcd, pos - V_rf.pos)
+
+        # Algorithm 1 START
+        # u_p: velocity of sheepdog
+        u_p = np.zeros(2)
+        if left_check and theta_lt < self.p.theta_t:
+            # TODO: Anchor rotation right
+            self.state_flag = 1
+            pass
+        elif right_check and theta_rt < self.p.theta_t:
+            # TODO: Anchor rotation left
+            self.state_flag = -1
+            pass
+        elif self.state_flag == 1:
+            # TODO: more
+            pass
+        else:
+            # TODO: more
+            pass
+
+        # if left_check:
+        #     print("All on left, time step: ", self.p.time_step)
+        # elif right_check:
+        #     print("All on right, time step: ", self.p.time_step)
+        # else:
+        #     print("Mixed between right and left, time step: ", self.p.time_step)
 
         # Rule 4 - Borders
         border_repulsive = np.zeros(2)
@@ -114,6 +228,8 @@ class Sheep(ap.Agent):
 
     def setup(self):
         self.velocity = np.zeros(2)
+        self.color = 'aqua'
+        self.critical = [0, 0, 0, 0]
 
     def setup_pos(self, space):
 
@@ -145,7 +261,9 @@ class Sheep(ap.Agent):
 
         # Zone 3 (attract)
         nbs_z3 = self.neighbors(self, distance=self.p.rho_vp).to_list()
-        nbs_z3 = only_sheep(nbs_z3)
+        nbs_z3 = only_agents(nbs_z3)
+
+        nbs_z3_sheep = only_sheep(nbs_z3)
 
         # Look for sheepdog
         v_qi = np.zeros(2)
@@ -154,7 +272,7 @@ class Sheep(ap.Agent):
             if agent.type == "Dog":
                 p_i = pos - agent.pos
                 norm_p_i = euclidean_norm(p_i)
-                phi = self.p.alpha * (self.p.rho_vp * - norm_p_i) / (norm_p_i - self.p.rho_x)
+                phi = self.p.alpha * (self.p.rho_vp - norm_p_i) / (norm_p_i - self.p.rho_x)
                 v_qi = a_i * phi * unit_vector(p_i)
 
         # Get lists of Agent IDs to exclude zone 0 from zone 1
@@ -165,9 +283,9 @@ class Sheep(ap.Agent):
 
         # Get lists of Agent IDs to exclude zone 2 from zone 3
         zone_2_ids = [x.id for x in nbs_z2]
-        zone_3_ids = [x.id for x in nbs_z3]
+        zone_3_ids = [x.id for x in nbs_z3_sheep]
         zone_3_exclusive_ids = [x for x in zone_3_ids if x not in zone_2_ids]
-        nbs_z3_revised = nbs_z3.select([True if x.id in zone_3_exclusive_ids else False for x in nbs_z3])
+        nbs_z3_revised = nbs_z3_sheep.select([True if x.id in zone_3_exclusive_ids else False for x in nbs_z3_sheep])
 
         v_pi_attractive = np.zeros(2)
         for sheep in nbs_z3_revised:
@@ -197,7 +315,7 @@ class Sheep(ap.Agent):
         nv = noise(self.p.speed_limit)
 
         # Update velocity using attractive, repulsive, boundary, and noise forces
-        velocity_vector = v_pi_attractive + v_pi_repulsive + border_repulsive + nv
+        velocity_vector = v_pi_attractive + v_pi_repulsive + border_repulsive + v_qi + nv
         self.velocity += velocity_vector
         self.velocity = saturate(self.velocity, self.p.speed_limit)
 
@@ -208,7 +326,7 @@ class Sheep(ap.Agent):
 class TargetArea(ap.Agent):
     def setup(self, **kwargs):
         self.type = "TargetArea"
-        self.radius = 10
+        self.radius = self.p.destination_radius
         self.color = "green"
         # self.setPos = [50, 87]
         # self.velocity
@@ -270,9 +388,10 @@ class SheepModel(ap.Model):
 
     def step(self):
         """ Defines the models' events per simulation step. """
-        sheepAgentList = only_sheep(self.agents)
-        sheepAgentList.update_velocity()  # Adjust direction
-        sheepAgentList.update_position()  # Move into new direction
+        agentList = only_sheep(self.agents)
+        agentList.append(self.agents[1])
+        agentList.update_velocity()  # Adjust direction
+        agentList.update_position()  # Move into new direction
 
 
 def animation_plot_single(m, ax):
@@ -281,12 +400,23 @@ def animation_plot_single(m, ax):
     pos = m.space.positions.values()
     pos = np.array(list(pos)).T  # Transform
     ax.scatter(*pos, s=1, c='black')
+
+    critical_text = {
+        0: "Plf",
+        1: "Prf",
+        2: "Pla",
+        3: "Pra"
+    }
     # updating each agent
     for agent in m.agents:
         if agent.type == "Sheep":
             # TODO: drawing boundaries for each zone ( zone1 repulsive, zone2 nuetral, zone3 attractive, zone4 nothing as out of sight)
-            c0 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s, edgecolor="black",
-                            facecolor="black")  # size of sheep
+            for (i, elem) in enumerate(agent.critical):
+                if elem == 1:
+                    agent.color = 'red'
+                    ax.text(agent.pos[0], agent.pos[1]-1.0, critical_text[i])
+            c0 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s, edgecolor=agent.color,
+                            facecolor=agent.color)  # size of sheep
             c1 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_r, edgecolor="red",
                             facecolor=(0, 0, 0, 0))  # border of zone 1 and zone 2
             c2 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_g, edgecolor="yellow",
@@ -297,6 +427,7 @@ def animation_plot_single(m, ax):
             ax.add_patch(c1)
             ax.add_patch(c2)
             ax.add_patch(c3)
+            ax.text(agent.pos[0], agent.pos[1], str(agent.id), ha='center')
         if agent.type == "TargetArea":
             c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.radius, edgecolor=agent.color,
                            facecolor=(0.5, 0.5, 0.5))  # target area
@@ -335,14 +466,16 @@ parameters = {
     'detouring_theta': 0.6,
     'theta_t': 2.5,
     'theta_b': 0.1,
-    'destination_center': (50.0, 87.0),
+    'destination_center': (50.0, 87.0),  # p_d
+    'destination_radius': 10,  # rho_d
     'border_distance': 10,
     'cohesion_strength': 0.005,
     'separation_strength': 0.1,
     'alignment_strength': 0.3,
     'border_strength': 0.5,
     'speed_limit': 0.1,
-    'speed_limit_d': 5.0 / 30.0
+    'speed_limit_d': 5.0 / 30.0,
+    'time_step': 0
 }
 
 html = animation_plot(SheepModel, parameters)
