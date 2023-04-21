@@ -40,10 +40,12 @@ def angle(x, y):
     """ Finds angle between vectors x and y """
     return np.arccos(np.inner(x, y) / (np.linalg.norm(x) * np.linalg.norm(y)))
 
+
 def stack_overflow_angle(v1, v2):
     v1_u = unit_vector(v1)
     v2_u = unit_vector(v2)
     return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+
 
 def noise(xi_p):
     """ Generate noise for sheep i at time step k, where xi_p is
@@ -93,6 +95,12 @@ class Dog(ap.Agent):
         self.neighbors = space.neighbors
         self.pos = space.positions[self]
 
+    def dis_func(self, vision):
+        dis_array = []
+        for sheep in vision:
+            dis_array.append(euclidean_norm(sheep.pos - self.p.centroid_sheep))
+
+        return np.max(dis_array)
 
     def H(self, sheep, Dcdlr):
         return np.inner(sheep.pos - self.pos, Dcdlr)
@@ -104,7 +112,7 @@ class Dog(ap.Agent):
         return np.linalg.norm(sheep.pos - self.pos)
 
     def V_front(self, sheep_list, Dcdlr):
-        #if(len(sheep_list))<= 0:
+        # if(len(sheep_list))<= 0:
         #    return None
         H_distances = []
         for sheep in sheep_list:
@@ -120,9 +128,9 @@ class Dog(ap.Agent):
 
         max_index = np.argmax(G_distances)
         return sheep_list[max_index]
-    
+
     def V_anchor(self, sheep_list, Dqc):
-        #if(len(sheep_list))<= 0:
+        # if(len(sheep_list))<= 0:
         #    return None
         F_distances = []
         for sheep in sheep_list:
@@ -131,49 +139,50 @@ class Dog(ap.Agent):
         min_index = np.argmin(F_distances)
         return sheep_list[min_index]
 
-    def left_right (self,position, vision):
-        A = unit_vector(position - self.p.destination_center)
-        C = -1 * A
+    def left_right(self, position, vision, pdf=None):
+        subposition = self.p.destination_center
+        if pdf is not None:
+            subposition = pdf
 
+        A = unit_vector(position - subposition)
+        C = -1 * A
         # Checking the left
         left_check = True
         right_check = True
-        
+
         for sheep in vision:
-            B = unit_vector(sheep.pos - self.p.destination_center)
+            B = unit_vector(sheep.pos - subposition)
             if np.cross(A, B) >= 0 and np.cross(C, B) < 0:
                 left_check = False
-                sheep.color = 'teal' #right
+                sheep.color = 'teal'  # right
             elif np.cross(A, B) < 0 and np.cross(C, B) >= 0:
                 right_check = False
-                sheep.color = 'lavender' #left
+                sheep.color = 'lavender'  # left
             else:
                 "Oops"
-        return left_check,right_check
+        return left_check, right_check
 
     def getLeft_RightSheep(self, vision, A):
         leftSheepList = []
         rightSheepList = []
-        
-        
-        #A = unit_vector(position - self.p.destination_center)
+
+        # A = unit_vector(position - self.p.destination_center)
         C = -1 * A
 
-        
         for sheep in vision:
             B = unit_vector(sheep.pos - self.p.centroid_sheep)
             if np.cross(A, B) >= 0 and np.cross(C, B) < 0:
-                
+
                 rightSheepList.append(sheep)
             elif np.cross(A, B) < 0 and np.cross(C, B) >= 0:
-                
+
                 leftSheepList.append(sheep)
             else:
                 "Oops"
-                
-        if(len(leftSheepList)<= 0 ) or (len(rightSheepList)<=0):
+
+        if (len(leftSheepList) <= 0) or (len(rightSheepList) <= 0):
             print("Error !! no sheep in left or right of sheep centroid!!")
-        return leftSheepList,rightSheepList    
+        return leftSheepList, rightSheepList
 
     def update_velocity(self):
 
@@ -203,47 +212,69 @@ class Dog(ap.Agent):
         Dcdr = np.matmul(rotation(-np.pi / 2), Dcd)
         Dqc = unit_vector(self.p.centroid_sheep - pos)
 
-        left_check,right_check = self.left_right(pos, vision)
+        # Calculate dynamic far-end
+        pdf = None
+        if self.p.algorithm == 2 or self.p.algorithm == 4:
+            pdf = self.p.destination_center + (self.p.destination_radius * Dcd)
+
+        left_check, right_check = self.left_right(pos, vision, pdf)
         # Calculating critical sheep (V_lf = P_lf under the assumption V_lf is always singleton)
         self.V_lf = self.V_front(vision, Dcdl)
         self.V_rf = self.V_front(vision, Dcdr)
 
-        #if self.V_lf != None:
+        # if self.V_lf != None:
         self.V_lf.critical[0] = 1
         self.V_rf.critical[1] = 1
-        
-        #TODO left_rightSheepList
+
         leftSheepList, rightSheepList = self.getLeft_RightSheep(vision, Dqc)
-        #TODO anchorSheep 
+
         self.V_la = self.V_anchor(leftSheepList, Dqc)
         self.V_ra = self.V_anchor(rightSheepList, Dqc)
-        
+
         self.V_la.critical[2] = 1
         self.V_ra.critical[3] = 1
-        #P_lf = self.P_left_front(vision)
 
         theta_lt = angle(Dcd, pos - self.V_lf.pos)
         theta_rt = angle(Dcd, pos - self.V_rf.pos)
-          
+
+        # Pausing mechanism
+        if self.p.algorithm == 3 or self.p.algorithm == 4:
+            theta_b = angle(Dcd, Dqc)
+            r = euclidean_norm(pos - self.p.centroid_sheep) / self.dis_func(vision)
+
         # Algorithm 1 START
         # u_p: velocity of sheepdog
         u_p = np.zeros(2)
         if left_check and theta_lt < self.p.theta_t:
-            # TODO: Anchor rotation right
             print("Should turn left here - ", self.p.time_step)
             self.state_flag = 1
-            u_p = self.p.velocity_coefficient * np.matmul(rotation(- self.p.detouring_theta) , (self.V_ra.pos - pos))
+            u_p = self.p.velocity_coefficient * np.matmul(rotation(- self.p.detouring_theta), (self.V_ra.pos - pos))
         elif right_check and theta_rt < self.p.theta_t:
-            # TODO: Anchor rotation left
             print("Should turn right here - ", self.p.time_step)
             self.state_flag = -1
-            u_p = self.p.velocity_coefficient * np.matmul(rotation(self.p.detouring_theta) , (self.V_la.pos - pos))
+            u_p = self.p.velocity_coefficient * np.matmul(rotation(self.p.detouring_theta), (self.V_la.pos - pos))
         elif self.state_flag == 1:
-            # TODO: more
-            u_p = self.p.velocity_coefficient * np.matmul(rotation(- self.p.detouring_theta) , (self.V_ra.pos - pos))
+            if self.p.algorithm == 3 or self.p.algorithm == 4:
+                if theta_b < self.p.theta_b and r < self.p.r_underbar:
+                    print("Should be pausing here - ", self.p.time_step)
+                    u_p = -self.velocity
+                elif r > self.p.r_overbar:
+                    u_p = self.p.velocity_coefficient * (self.p.centroid_sheep - pos)
+                else:
+                    u_p = self.p.velocity_coefficient * np.matmul(rotation(- self.p.detouring_theta), (self.V_ra.pos - pos))
+            else:
+                u_p = self.p.velocity_coefficient * np.matmul(rotation(- self.p.detouring_theta), (self.V_ra.pos - pos))
         else:
-            # TODO: more
-            u_p = self.p.velocity_coefficient * np.matmul(rotation(self.p.detouring_theta) , (self.V_la.pos - pos))
+            if self.p.algorithm == 3 or self.p.algorithm == 4:
+                if theta_b < self.p.theta_b and r < self.p.r_underbar:
+                    print("Should be pausing here - ", self.p.time_step)
+                    u_p = -self.velocity
+                elif r > self.p.r_overbar:
+                    u_p = self.p.velocity_coefficient * (self.p.centroid_sheep - pos)
+                else:
+                    u_p = self.p.velocity_coefficient * np.matmul(rotation(self.p.detouring_theta), (self.V_la.pos - pos))
+            else:
+                u_p = self.p.velocity_coefficient * np.matmul(rotation(self.p.detouring_theta), (self.V_la.pos - pos))
 
         # if left_check:
         #     print("All on left, time step: ", self.p.time_step)
@@ -449,13 +480,13 @@ class SheepModel(ap.Model):
 
 def animation_plot_single(m, ax):
     ndim = 2
-    ax.set_title(f"Sheep Herding Model 2D t={m.t}")
+    ax.set_title(f"Sheep Herding Model (Algorithm {m.p.algorithm}) t={m.t}")
     pos = m.space.positions.values()
     pos = np.array(list(pos)).T  # Transform
     ax.scatter(*pos, s=1, c='black')
-    centroid = plt.Circle((m.p.centroid_sheep[0], m.p.centroid_sheep[1]), radius=5, edgecolor="pink",
-                           facecolor="pink")  # target area
-    ax.add_patch(centroid)
+    # centroid = plt.Circle((m.p.centroid_sheep[0], m.p.centroid_sheep[1]), radius=5, edgecolor="pink",
+    #                       facecolor="pink")  # target area
+    # ax.add_patch(centroid)
     critical_text = {
         0: "Plf",
         1: "Prf",
@@ -469,26 +500,26 @@ def animation_plot_single(m, ax):
             for (i, elem) in enumerate(agent.critical):
                 if elem == 1:
                     agent.color = 'red'
-                    ax.text(agent.pos[0], agent.pos[1]-1.0, critical_text[i])
-            c0 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s, edgecolor=agent.color,
+                    ax.text(agent.pos[0], agent.pos[1] - 1.0, critical_text[i])
+            c0 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s - 0.6, edgecolor=agent.color,
                             facecolor=agent.color)  # size of sheep
-            c1 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_r, edgecolor="red",
-                            facecolor=(0, 0, 0, 0))  # border of zone 1 and zone 2
-            c2 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_g, edgecolor="yellow",
-                            facecolor=(0, 0, 0, 0))  # border of zone 2 and zone 3
-            c3 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_vp, edgecolor="pink",
-                            facecolor=(0, 0, 0, 0))  # border of zone 3 and 4
+            # c1 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_r, edgecolor="red",
+            #                 facecolor=(0, 0, 0, 0))  # border of zone 1 and zone 2
+            # c2 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_g, edgecolor="yellow",
+            #                 facecolor=(0, 0, 0, 0))  # border of zone 2 and zone 3
+            # c3 = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_vp, edgecolor="pink",
+            #                 facecolor=(0, 0, 0, 0))  # border of zone 3 and 4
             ax.add_patch(c0)
-            ax.add_patch(c1)
-            ax.add_patch(c2)
-            ax.add_patch(c3)
+            # ax.add_patch(c1)
+            # ax.add_patch(c2)
+            # ax.add_patch(c3)
             ax.text(agent.pos[0], agent.pos[1], str(agent.id), ha='center')
         if agent.type == "TargetArea":
             c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.radius, edgecolor=agent.color,
                            facecolor=(0.5, 0.5, 0.5))  # target area
             ax.add_patch(c)
         if agent.type == "Dog":
-            c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s, edgecolor="black",
+            c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s - 0.6, edgecolor="black",
                            facecolor="blue")  # size of sheep
             ax.add_patch(c)
 
@@ -507,23 +538,25 @@ def animation_plot(m, p):
 parameters = {
     'size': 100,
     'seed': 128,
-    'steps': 1000,
+    'steps': 400,
     'population': 24,
     'rho_x': 1.5,
     'rho_s': 1.2,
     'rho_r': 2.2,
     'rho_g': 5.4,
-    'rho_vp': 20,
-    'rho_vq': 30,
+    'rho_vp': 20.0,
+    'rho_vq': 30.0,
     'alpha': 0.7,
-    'beta': 5,
+    'beta': 5.0,
     'gamma': 0.02,
     'velocity_coefficient': 0.6,
-    'detouring_theta': ((.6 *360)/np.pi),
+    'detouring_theta': ((.6 * 360) / np.pi),
     'theta_t': 2.5,
     'theta_b': 0.1,
+    'r_underbar': 10.0/7.0,
+    'r_overbar': 4.0,
     'destination_center': (50.0, 87.0),  # p_d
-    'destination_radius': 10,  # rho_d
+    'destination_radius': 10.0,  # rho_d
     'border_distance': 10,
     'cohesion_strength': 0.005,
     'separation_strength': 0.1,
@@ -532,7 +565,8 @@ parameters = {
     'speed_limit': 0.1,
     'centroid_sheep': (0.0, 0.0),
     'speed_limit_d': 5.0 / 30.0,
-    'time_step': 0
+    'time_step': 0,
+    'algorithm': 4
 }
 
 html = animation_plot(SheepModel, parameters)
