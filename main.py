@@ -4,7 +4,7 @@ import random
 
 import agentpy as ap
 import numpy as np
-
+import pandas as pd
 # Visualization
 import matplotlib.pyplot as plt
 import matplotlib as mp
@@ -73,6 +73,21 @@ def only_sheep(arr):
 
 def only_agents(arr):
     return arr.select([True if agent.type == "Sheep" or agent.type == "Dog" else False for agent in arr])
+def only_obstacle(arr):
+    return arr.select([True if agent.type == "Obstacle" else False for agent in arr])
+def colliding_circle(x, y, r,timestep,agent):
+    # Define the radius of the circle
+    radius = r
+
+    # Check if the circle intersects with any agents
+    #for agent_x, agent_y in agents:
+    agent_x = agent[0]
+    agent_y = agent[1]
+    if abs(x - agent_x)**2 + abs(y - agent_y)**2 < (radius + 10)**2:
+        # The circle intersects with this agent,
+        print("Sheep ", agent.id, " intersected with obs at timestep " , timestep )
+        return True
+    return False
 
 
 class Dog(ap.Agent):
@@ -246,17 +261,17 @@ class Dog(ap.Agent):
         # u_p: velocity of sheepdog
         u_p = np.zeros(2)
         if left_check and theta_lt < self.p.theta_t:
-            print("Should turn left here - ", self.p.time_step)
+            #print("Should turn left here - ", self.p.time_step)
             self.state_flag = 1
             u_p = self.p.velocity_coefficient * np.matmul(rotation(- self.p.detouring_theta), (self.V_ra.pos - pos))
         elif right_check and theta_rt < self.p.theta_t:
-            print("Should turn right here - ", self.p.time_step)
+            #print("Should turn right here - ", self.p.time_step)
             self.state_flag = -1
             u_p = self.p.velocity_coefficient * np.matmul(rotation(self.p.detouring_theta), (self.V_la.pos - pos))
         elif self.state_flag == 1:
             if self.p.algorithm == 3 or self.p.algorithm == 4:
                 if theta_b < self.p.theta_b and r < self.p.r_underbar:
-                    print("Should be pausing here - ", self.p.time_step)
+                    #print("Should be pausing here - ", self.p.time_step)
                     u_p = -self.velocity
                 elif r > self.p.r_overbar:
                     u_p = self.p.velocity_coefficient * (self.p.centroid_sheep - pos)
@@ -267,7 +282,7 @@ class Dog(ap.Agent):
         else:
             if self.p.algorithm == 3 or self.p.algorithm == 4:
                 if theta_b < self.p.theta_b and r < self.p.r_underbar:
-                    print("Should be pausing here - ", self.p.time_step)
+                    #print("Should be pausing here - ", self.p.time_step)
                     u_p = -self.velocity
                 elif r > self.p.r_overbar:
                     u_p = self.p.velocity_coefficient * (self.p.centroid_sheep - pos)
@@ -320,6 +335,7 @@ class Sheep(ap.Agent):
         self.space = space
         self.neighbors = space.neighbors
         self.pos = space.positions[self]
+        self.prevPos = []
 
     def update_velocity(self):
 
@@ -356,7 +372,7 @@ class Sheep(ap.Agent):
             if agent.type == "Dog":
                 p_i = pos - agent.pos
                 norm_p_i = euclidean_norm(p_i)
-                phi = self.p.alpha * (self.p.rho_vp - norm_p_i) / (norm_p_i - self.p.rho_x)
+                phi = np.abs(self.p.alpha * (self.p.rho_vp - norm_p_i) / (norm_p_i - self.p.rho_x))
                 v_qi = a_i * phi * unit_vector(p_i)
 
         # Get lists of Agent IDs to exclude zone 0 from zone 1
@@ -394,18 +410,61 @@ class Sheep(ap.Agent):
                 border_repulsive[i] += s
             elif pos[i] > self.space.shape[i] - d:
                 border_repulsive[i] -= s
+        
+        # Rule 5 - Obstacle
+        obstacle_repulsive = np.zeros(2)
+        if(self.p.obstacle !=0):
+            d = self.p.obstacle_distance
+            s = self.p.obstacle_strength
+
+
+            obstacle_repulsive = .3 * unit_vector(pos - self.p.obstacle_center)
+            #for i in range(2):
+                
+             #   if pos[i] < d:
+             #       obstacle_repulsive[i] += s
+             #   elif pos[i] > self.p.obstacle_center[i] - d:
+             #       obstacle_repulsive[i] -= s
 
         # Noise vector
         nv = noise(self.p.speed_limit)
 
         # Update velocity using attractive, repulsive, boundary, and noise forces
-        velocity_vector = v_pi_attractive + v_pi_repulsive + border_repulsive + v_qi + nv
+        velocity_vector = v_pi_attractive + v_pi_repulsive + border_repulsive + v_qi  + nv + obstacle_repulsive
         self.velocity += velocity_vector
         self.velocity = saturate(self.velocity, self.p.speed_limit)
 
     def update_position(self):
+        self.prevPos = self.pos
         self.space.move_by(self, self.velocity)
 
+        #check if it is in obstacle move to previous step 
+        #get obstacle
+        colliding = False
+        allAgents = self.neighbors(self, distance=500).to_list()
+        agent_obs = only_obstacle(allAgents)
+
+        #obstacle difference
+        """
+        #if(self.p.obstacle == 1): #rectangle
+        if(self.p.obstacle == 2): #circle
+            #print(self.p.obstacle_center[0],self.p.obstacle_center[1], agent_obs.radius, self.p.time_step, self.pos)
+
+            print(type(agent_obs))
+            agentsInObstacleBoundary = self.neighbors(agent_obs,distance = agent_obs.radius)
+
+            #.to_list()
+            print("here")
+            for agent in agentsInObstacleBoundary:
+                if agent.id == self.id:
+                    colliding == True
+                    break
+            #colliding = colliding_circle(self.p.obstacle_center[0],self.p.obstacle_center[1], agent_obs.radius, self.p.time_step, self.pos)
+        #elif(self.p.obstacle == 3): #triangle
+        """
+        if(colliding):
+            print("Sheep ", self.id, " intersected with obstacle at timestep " , self.p.timestep )
+            self.space.move_to(self, self.prevPos)
 
 class TargetArea(ap.Agent):
     def setup(self, **kwargs):
@@ -431,6 +490,16 @@ class TargetArea(ap.Agent):
     # def update_positions(self):
     #    return
 
+class Obstacles(ap.Agent):
+    def setup(self,**kwargs):
+        self.type="Obstacle"
+        self.points =[] #list of (x,y) pts
+        self.radius = -1 # radius if applicable
+        return super().setup(**kwargs)
+    def setup_pos(self, space):
+        self.space = space
+        self.neighbors = space.neighbors
+        self.pos = space.positions[self]
 
 class SheepModel(ap.Model):
     """
@@ -457,16 +526,34 @@ class SheepModel(ap.Model):
         agent_dog = Dog(self)
         self.agents.insert(1, agent_dog)  # Add dog
 
+        #obstacle creation
+        obstaclesDict = {0:'None',1:[ (0,0), (0, 100), (100, 100), (100, 0)],2:4,3:[ (0, 100), (100, 100), (100, 0)]} #obstacles 0:'None',1:'rectangle',2:'circle',3:'trianlge'
+        if(self.p.obstacle != 0):#adding obstacle
+            agent_obstacle = Obstacles(self)
+            self.agents.insert(2,agent_obstacle) 
+
+            #TODO: add coordinates of obs
+            if(self.p.obstacle == 1): #rectangle
+                agent_obstacle.points= obstaclesDict[1]
+            elif(self.p.obstacle == 2): #circle
+                agent_obstacle.radius= obstaclesDict[2]
+            elif(self.p.obstacle == 3): #triangle
+                agent_obstacle.points= obstaclesDict[3]
+
         xPos = random.sample(range(35, 65), self.p.population)
-        yPos = random.sample(range(55, 85), self.p.population)
+        yPos = random.sample(range(25, 55), self.p.population)
         xPos = [float(x) for x in xPos]
         yPos = [float(y) for y in yPos]
         self.positionList = np.column_stack((xPos, yPos))
-        agentListFront = np.append([self.p.destination_center], [(50.0, 35.0)], axis=0)
-        self.positionList = np.append(agentListFront, self.positionList, axis=0)
+        agentListFront = np.append([self.p.destination_center], [(50.0, 5.0)], axis=0)
+        if(self.p.obstacle != 0):
+            agentListF_obstacle = np.append(agentListFront, [self.p.obstacle_center], axis =0)
+            self.positionList = np.append(agentListF_obstacle, self.positionList, axis=0)
+        else:
+            self.positionList = np.append(agentListFront, self.positionList, axis=0)
 
         posList = [(x[0], x[1]) for x in self.positionList]
-        print("positionList: ", posList)
+        #print("positionList: ", posList)
         self.space.add_agents(self.agents, positions=posList, random=False)
         self.agents.setup_pos(self.space)
 
@@ -476,6 +563,11 @@ class SheepModel(ap.Model):
         agentList.append(self.agents[1])
         agentList.update_velocity()  # Adjust direction
         agentList.update_position()  # Move into new direction
+
+    def update(self):
+        """ Updates after every time step """
+        sheep_herded = only_sheep(self.agents[0].neighbors(self.agents[0], self.p.destination_radius).to_list())
+        self.record('percentage', len(sheep_herded) / self.p.population)
 
 
 def animation_plot_single(m, ax):
@@ -515,13 +607,17 @@ def animation_plot_single(m, ax):
             # ax.add_patch(c3)
             ax.text(agent.pos[0], agent.pos[1], str(agent.id), ha='center')
         if agent.type == "TargetArea":
-            c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.radius, edgecolor=agent.color,
-                           facecolor=(0.5, 0.5, 0.5))  # target area
+            c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.radius, edgecolor=agent.color,facecolor=(0.5, 0.5, 0.5))  # target area
             ax.add_patch(c)
         if agent.type == "Dog":
-            c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s - 0.6, edgecolor="black",
-                           facecolor="blue")  # size of sheep
+            c = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.p.rho_s - 0.6, edgecolor="black",facecolor="blue")  # size of sheep
             ax.add_patch(c)
+        if agent.type == "Obstacle":
+            #if(m.p.obstacle == 1): #rectangle
+            if(m.p.obstacle == 2): #circle
+                c_o = plt.Circle((agent.pos[0], agent.pos[1]), radius=agent.radius, edgecolor="yellow",facecolor="yellow") 
+                ax.add_patch(c_o) 
+            #elif(m.p.obstacle == 3): #triangle
 
     ax.set_xlim(0, m.p.size)
     ax.set_ylim(0, m.p.size)
@@ -538,7 +634,7 @@ def animation_plot(m, p):
 parameters = {
     'size': 100,
     'seed': 128,
-    'steps': 400,
+    'steps': 1000,
     'population': 24,
     'rho_x': 1.5,
     'rho_s': 1.2,
@@ -566,8 +662,75 @@ parameters = {
     'centroid_sheep': (0.0, 0.0),
     'speed_limit_d': 5.0 / 30.0,
     'time_step': 0,
-    'algorithm': 4
+    'algorithm': 4,
+    'obstacle':2,
+    'obstacle_center': (50.0,63.0),
+    'obstacle_distance': .5,
+    'obstacle_strength': 5.0
 }
+
+num_trials = 3
+
+results_dict = {"Trial": [],
+                "Success": [],
+                "Highest Percentage": [],
+                "Highest Percentage Time Step": [],
+                "Time Steps to Success": []}
+df1 = None
+df2 = None
+df3 = None
+df4 = None
+for algorithm in range(4, 5):
+    parameters['algorithm'] = algorithm
+    print(f"Testing Algorithm {algorithm}")
+    for trial in range(num_trials):
+        # Init and run model
+        model = SheepModel(parameters)
+        results = model.run()
+
+        max_perc_row = results.variables.SheepModel.query('percentage == percentage.max()')
+        time_step = max_perc_row.iloc[[0]].index[0]
+        max_perc = max_perc_row.loc[time_step]['percentage']
+
+        results_dict["Trial"].append(trial + 1)
+        if max_perc == 1.0:
+            results_dict["Success"].append(True)
+            results_dict["Time Steps to Success"].append(time_step)
+        else:
+            results_dict["Success"].append(False)
+            results_dict["Time Steps to Success"].append(-1)
+        results_dict["Highest Percentage"].append(max_perc)
+        results_dict["Highest Percentage Time Step"].append(time_step)
+
+        parameters['seed'] += 1
+
+    if algorithm == 1:
+        df1 = pd.DataFrame(results_dict)
+    elif algorithm == 2:
+        df2 = pd.DataFrame(results_dict)
+    elif algorithm == 3:
+        df3 = pd.DataFrame(results_dict)
+    elif algorithm == 4:
+        df4 = pd.DataFrame(results_dict)
+    else:
+        raise Exception("No algorithms beyond algorithm 4")
+
+    parameters['seed'] = 1
+    parameters['time_step'] = 0
+    parameters['centroid_sheep'] = (0.0, 0.0)
+
+    results_dict = {"Trial": [],
+                    "Success": [],
+                    "Highest Percentage": [],
+                    "Highest Percentage Time Step": [],
+                    "Time Steps to Success": []}
+
+
+with pd.ExcelWriter('results.xlsx') as writer:
+    # df1.to_excel(writer, sheet_name=f"Algorithm 1")
+    # df2.to_excel(writer, sheet_name=f"Algorithm 2")
+    # df3.to_excel(writer, sheet_name=f"Algorithm 3")
+    df4.to_excel(writer, sheet_name=f"Algorithm 4")
 
 html = animation_plot(SheepModel, parameters)
 
