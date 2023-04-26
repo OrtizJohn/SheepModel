@@ -669,74 +669,80 @@ parameters = {
     'obstacle_strength': 5.0
 }
 
-num_trials = 3
-
-results_dict = {"Trial": [],
-                "Success": [],
-                "Highest Percentage": [],
-                "Highest Percentage Time Step": [],
-                "Time Steps to Success": []}
-df1 = None
-df2 = None
-df3 = None
-df4 = None
-for algorithm in range(4, 5):
-    parameters['algorithm'] = algorithm
-    print(f"Testing Algorithm {algorithm}")
-    for trial in range(num_trials):
-        # Init and run model
-        model = SheepModel(parameters)
-        results = model.run()
-
-        max_perc_row = results.variables.SheepModel.query('percentage == percentage.max()')
-        time_step = max_perc_row.iloc[[0]].index[0]
-        max_perc = max_perc_row.loc[time_step]['percentage']
-
-        results_dict["Trial"].append(trial + 1)
-        if max_perc == 1.0:
-            results_dict["Success"].append(True)
-            results_dict["Time Steps to Success"].append(time_step)
-        else:
-            results_dict["Success"].append(False)
-            results_dict["Time Steps to Success"].append(-1)
-        results_dict["Highest Percentage"].append(max_perc)
-        results_dict["Highest Percentage Time Step"].append(time_step)
-
-        parameters['seed'] += 1
-
-    if algorithm == 1:
-        df1 = pd.DataFrame(results_dict)
-    elif algorithm == 2:
-        df2 = pd.DataFrame(results_dict)
-    elif algorithm == 3:
-        df3 = pd.DataFrame(results_dict)
-    elif algorithm == 4:
-        df4 = pd.DataFrame(results_dict)
-    else:
-        raise Exception("No algorithms beyond algorithm 4")
-
-    parameters['seed'] = 1
-    parameters['time_step'] = 0
-    parameters['centroid_sheep'] = (0.0, 0.0)
+runTrials = False
+if runTrials:
+    num_trials = 3
 
     results_dict = {"Trial": [],
                     "Success": [],
                     "Highest Percentage": [],
                     "Highest Percentage Time Step": [],
                     "Time Steps to Success": []}
+    df1 = None
+    df2 = None
+    df3 = None
+    df4 = None
+    for algorithm in range(1, 5):
+        parameters['algorithm'] = algorithm
+        print(f"Testing Algorithm {algorithm}")
+        for trial in range(num_trials):
+            # Init and run model
+            model = SheepModel(parameters)
+            results = model.run()
+
+            max_perc_row = results.variables.SheepModel.query('percentage == percentage.max()')
+            time_step = max_perc_row.iloc[[0]].index[0]
+            max_perc = max_perc_row.loc[time_step]['percentage']
+
+            results_dict["Trial"].append(trial + 1)
+            if max_perc == 1.0:
+                results_dict["Success"].append(True)
+                results_dict["Time Steps to Success"].append(time_step)
+            else:
+                results_dict["Success"].append(False)
+                results_dict["Time Steps to Success"].append(-1)
+            results_dict["Highest Percentage"].append(max_perc)
+            results_dict["Highest Percentage Time Step"].append(time_step)
+
+            parameters['seed'] += 1
+
+        if algorithm == 1:
+            df1 = pd.DataFrame(results_dict)
+        elif algorithm == 2:
+            df2 = pd.DataFrame(results_dict)
+        elif algorithm == 3:
+            df3 = pd.DataFrame(results_dict)
+        elif algorithm == 4:
+            df4 = pd.DataFrame(results_dict)
+        else:
+            raise Exception("No algorithms beyond algorithm 4")
+
+        parameters['seed'] = 1
+        parameters['time_step'] = 0
+        parameters['centroid_sheep'] = (0.0, 0.0)
+
+        results_dict = {"Trial": [],
+                        "Success": [],
+                        "Highest Percentage": [],
+                        "Highest Percentage Time Step": [],
+                        "Time Steps to Success": []}
 
 
-with pd.ExcelWriter('results.xlsx') as writer:
-    # df1.to_excel(writer, sheet_name=f"Algorithm 1")
-    # df2.to_excel(writer, sheet_name=f"Algorithm 2")
-    # df3.to_excel(writer, sheet_name=f"Algorithm 3")
-    df4.to_excel(writer, sheet_name=f"Algorithm 4")
+    with pd.ExcelWriter('results.xlsx') as writer:
+        df1.to_excel(writer, sheet_name=f"Algorithm 1")
+        df2.to_excel(writer, sheet_name=f"Algorithm 2")
+        df3.to_excel(writer, sheet_name=f"Algorithm 3")
+        df4.to_excel(writer, sheet_name=f"Algorithm 4")
 
-html = animation_plot(SheepModel, parameters)
+else:
+    model = SheepModel(parameters)
+    results = model.run()
 
-path = os.path.abspath('anim.html')
-url = 'file://' + path
+    html = animation_plot(SheepModel, parameters)
 
-with open(path, 'w') as f:
-    f.write(html)
-webbrowser.open(url)
+    path = os.path.abspath('anim.html')
+    url = 'file://' + path
+
+    with open(path, 'w') as f:
+        f.write(html)
+    webbrowser.open(url)
