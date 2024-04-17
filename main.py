@@ -515,7 +515,7 @@ class SheepModel(ap.Model):
         """ Initializes the agents and network of the model. """
 
         self.space = ap.Space(self, shape=[self.p.size] * 2)
-        self.agents = ap.AgentList(self, self.p.population, Sheep)  # add sheeps
+        self.agents = ap.AgentList(self, objs=self.p.population, cls=Sheep)  # add sheeps
 
         agent_ta = TargetArea(self)
         self.agents.insert(0, agent_ta)  # add target area
